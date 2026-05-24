@@ -1,0 +1,94 @@
+name: Deploy Azure Container Apps
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  AZURE_RESOURCE_GROUP: rg-azure-app
+  AZURE_LOCATION: eastus
+  AZURE_CONTAINERAPPS_ENV: aca-azure-env
+  AZURE_CONTAINERAPP_NAME: azure-app
+  AZURE_ACR_NAME: azureappacr
+  IMAGE_NAME: azure-app
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Install Azure Container Apps extension
+        run: az extension add --name containerapp --upgrade
+
+      - name: Build and deploy
+        shell: bash
+        env:
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          az group create \
+            --name "$AZURE_RESOURCE_GROUP" \
+            --location "$AZURE_LOCATION" >/dev/null
+
+          if ! az acr show --name "$AZURE_ACR_NAME" --resource-group "$AZURE_RESOURCE_GROUP" >/dev/null 2>&1; then
+            az acr create \
+              --name "$AZURE_ACR_NAME" \
+              --resource-group "$AZURE_RESOURCE_GROUP" \
+              --sku Basic \
+              --admin-enabled true >/dev/null
+          fi
+
+          ACR_LOGIN_SERVER="$(az acr show --name "$AZURE_ACR_NAME" --resource-group "$AZURE_RESOURCE_GROUP" --query loginServer -o tsv)"
+          ACR_USERNAME="$(az acr credential show --name "$AZURE_ACR_NAME" --resource-group "$AZURE_RESOURCE_GROUP" --query username -o tsv)"
+          ACR_PASSWORD="$(az acr credential show --name "$AZURE_ACR_NAME" --resource-group "$AZURE_RESOURCE_GROUP" --query passwords[0].value -o tsv)"
+
+          if ! az containerapp env show --name "$AZURE_CONTAINERAPPS_ENV" --resource-group "$AZURE_RESOURCE_GROUP" >/dev/null 2>&1; then
+            az containerapp env create \
+              --name "$AZURE_CONTAINERAPPS_ENV" \
+              --resource-group "$AZURE_RESOURCE_GROUP" \
+              --location "$AZURE_LOCATION" >/dev/null
+          fi
+
+          docker build -t "$ACR_LOGIN_SERVER/$IMAGE_NAME:$IMAGE_TAG" .
+          echo "$ACR_PASSWORD" | docker login "$ACR_LOGIN_SERVER" -u "$ACR_USERNAME" --password-stdin
+          docker push "$ACR_LOGIN_SERVER/$IMAGE_NAME:$IMAGE_TAG"
+
+          if az containerapp show --name "$AZURE_CONTAINERAPP_NAME" --resource-group "$AZURE_RESOURCE_GROUP" >/dev/null 2>&1; then
+            az containerapp update \
+              --name "$AZURE_CONTAINERAPP_NAME" \
+              --resource-group "$AZURE_RESOURCE_GROUP" \
+              --image "$ACR_LOGIN_SERVER/$IMAGE_NAME:$IMAGE_TAG" \
+              --min-replicas 1 \
+              --max-replicas 1 \
+              --cpu 0.25 \
+              --memory 0.5Gi >/dev/null
+          else
+            az containerapp create \
+              --name "$AZURE_CONTAINERAPP_NAME" \
+              --resource-group "$AZURE_RESOURCE_GROUP" \
+              --environment "$AZURE_CONTAINERAPPS_ENV" \
+              --image "$ACR_LOGIN_SERVER/$IMAGE_NAME:$IMAGE_TAG" \
+              --registry-server "$ACR_LOGIN_SERVER" \
+              --registry-username "$ACR_USERNAME" \
+              --registry-password "$ACR_PASSWORD" \
+              --target-port 8080 \
+              --ingress external \
+              --min-replicas 1 \
+              --max-replicas 1 \
+              --cpu 0.25 \
+              --memory 0.5Gi >/dev/null
+          fi
+
+          az containerapp ingress enable \
+            --name "$AZURE_CONTAINERAPP_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" >/dev/null 2>&1 || true
