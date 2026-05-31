@@ -69,6 +69,7 @@ No repositório:
 
 ### 6. Verificar o deploy
 
+
 No Azure Portal:
 
 1. Abra `Aplicativo de contêiner`.
