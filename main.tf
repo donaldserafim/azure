@@ -1,3 +1,30 @@
+terraform {
+  required_version = ">= 1.6.0"
+
+  required_providers {
+    azurerm = {
+      source  = "hashicorp/azurerm"
+      version = "~> 4.0"
+    }
+  }
+}
+
+provider "azurerm" {
+  features {}
+}
+
+variable "prefix" {
+  type        = string
+  description = "Base name used to create Azure resources."
+  default     = "azure"
+}
+
+variable "location" {
+  type        = string
+  description = "Azure region."
+  default     = "eastus"
+}
+
 locals {
   resource_group_name = "rg-${var.prefix}-app"
   acr_name            = replace(lower("${var.prefix}appacr"), "/[^a-z0-9]/", "")
@@ -32,4 +59,12 @@ resource "azurerm_container_app_environment" "this" {
   location                   = azurerm_resource_group.this.location
   resource_group_name        = azurerm_resource_group.this.name
   log_analytics_workspace_id = azurerm_log_analytics_workspace.this.id
+}
+
+output "resource_group_name" {
+  value = azurerm_resource_group.this.name
+}
+
+output "container_registry_login_server" {
+  value = azurerm_container_registry.this.login_server
 }

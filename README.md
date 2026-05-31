@@ -4,6 +4,29 @@ Aplicativo Spring Boot/Kotlin preparado para deploy no Azure Aplicativo de cont�
 
 ## Deploy no Azure
 
+## Terraform
+
+O Terraform está concentrado em um único arquivo:
+
+- `main.tf`
+
+### Aplicar a infraestrutura
+
+```bash
+terraform init
+terraform plan
+terraform apply
+```
+
+O Terraform cria só a base do ambiente:
+
+- resource group
+- Log Analytics workspace
+- Azure Container Registry
+- Container Apps Environment
+
+O deploy da aplicação continua via GitHub Actions, como já estava.
+
 ### 1. Criar o app registration no Microsoft Entra ID
 
 No portal do Azure:
